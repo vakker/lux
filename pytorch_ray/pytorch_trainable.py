@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 class PyTorchTrainable(Trainable):
     @classmethod
     def default_resource_request(cls, config):
-        return Resources(cpu=config["num_cpus"], gpu=config["num_gpus"])
+        return Resources(
+            cpu=config.get("num_cpus", 2), gpu=config.get("num_gpus", 0))
 
     def _setup(self, config):
         runner_creator = config['runner_creator']
