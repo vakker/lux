@@ -7,7 +7,7 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'torch==1.2.0',
-        'ray==0.8.0.dev4',
+        'ray>=0.7.0',
         'pandas>=0.20.3',
     ],
 )
