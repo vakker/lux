@@ -14,6 +14,7 @@ from ray.tune.resources import Resources
 from . import utils
 
 logger = logging.getLogger(__name__)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class PyTorchTrainable(Trainable):
@@ -24,10 +25,13 @@ class PyTorchTrainable(Trainable):
 
     def _setup(self, config):
         runner_creator = config['runner_creator']
-        self._runner = runner_creator(config=config)
+        runner_config = config['runner_config']
+        self._runner = runner_creator(config=runner_config)
 
     def _train(self):
-        return self._runner.train()
+        tng_stats = self._runner.train()
+        tng_stats['exp_id'] = self._experiment_id
+        return tng_stats
 
     def _save(self, checkpoint_dir):
         checkpoint = osp.join(checkpoint_dir, "model.pth")
@@ -61,7 +65,6 @@ class PyTorchRunner(ABC):
             config (dict): see pytorch_trainer.py.
             batch_size (int): see pytorch_trainer.py.
         """
-        utils.init_random()
 
         self.model = None
         self.criterion = None
@@ -261,6 +264,7 @@ class PyTorchRunner(ABC):
         validation_stats = self.val_step()
 
         train_stats.update(validation_stats)
+        train_stats.update({'hparams': self.config['hparams']})
         return train_stats
 
     def inference(self):

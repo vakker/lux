@@ -5,6 +5,10 @@ from torch import nn
 from pytorch_ray import PyTorchRunner
 
 
+def trial_str_creator(trial):
+    return "{}_{}".format(trial.trainable_name, trial.trial_id)
+
+
 def create_runner(config):
     return SimpleRunner(config)
 
@@ -25,12 +29,16 @@ class LinearDataset(torch.utils.data.Dataset):
     """y = x * a + b"""
 
     def __init__(self, a, b, size=1000):
+        np.random.seed(size)
+        a = np.array(a)
+        b = np.array(b)
         in_feats = a.shape[0]
         x = np.linspace(0, 1, size)
-        x = np.tile(x, (in_feats, 1)).T.astype(np.float32)
-        y = (np.dot(x, a) + b).astype(np.float32)
-        self.x = torch.from_numpy(x)
-        self.y = torch.from_numpy(y)
+        x = np.tile(x, (in_feats, 1)).T
+        y = (np.dot(x, a) + b)
+        y = y + np.random.normal(size=y.shape)
+        self.x = torch.from_numpy(x.astype(np.float32))
+        self.y = torch.from_numpy(y.astype(np.float32))
 
     def __getitem__(self, index):
         return self.x[index, None], self.y[index, None]
@@ -41,9 +49,8 @@ class LinearDataset(torch.utils.data.Dataset):
 
 class SimpleRunner(PyTorchRunner):
     def model_creator(self, config):
-        model_params = config['model_params']
-        return TwoLayerNet(model_params['D_in'], model_params['H'],
-                           model_params['D_out'])
+        hparams = config['hparams']
+        return TwoLayerNet(hparams['D_in'], hparams['H'], hparams['D_out'])
 
     def data_creator(self, config):
         ds_params = config['ds_params']
@@ -52,8 +59,8 @@ class SimpleRunner(PyTorchRunner):
         return tng_ds, val_ds
 
     def optimizer_creator(self, model, config):
-        optim_params = config['optim_params']
+        hparams = config['hparams']
         criterion = getattr(torch.nn, config['loss'])()
         optimizer_cls = getattr(torch.optim, config['optim'])
-        optimizer = optimizer_cls(model.parameters(), **optim_params)
+        optimizer = optimizer_cls(model.parameters(), hparams['lr'])
         return criterion, optimizer
