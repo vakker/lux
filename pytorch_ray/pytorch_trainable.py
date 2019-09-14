@@ -26,6 +26,7 @@ class PyTorchTrainable(Trainable):
     def _setup(self, config):
         runner_creator = config['runner_creator']
         runner_config = config['runner_config']
+        runner_config.update({'num_gpus': config['num_gpus']})
         self._runner = runner_creator(config=runner_config)
 
     def _train(self):
