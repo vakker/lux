@@ -64,3 +64,17 @@ class SimpleRunner(PyTorchRunner):
         optimizer_cls = getattr(torch.optim, config['optim'])
         optimizer = optimizer_cls(model.parameters(), hparams['lr'])
         return criterion, optimizer
+
+    def fwd_step(self, samples):
+        inputs = samples[0]
+        targets = samples[1]
+
+        outputs = self.model(inputs)
+        loss = self.criterion(outputs, targets)
+        return {'loss': loss}
+
+    def tng_step(self, samples):
+        return self.fwd_step(samples)
+
+    def val_step(self, samples):
+        return self.fwd_step(samples)

@@ -3,6 +3,7 @@ import os
 import sys
 import time
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from os import path as osp
 
 import numpy as np
@@ -136,39 +137,51 @@ class PyTorchRunner(ABC):
             num_workers=config.get('ds_workers', 2),
             pin_memory=False)
 
-    def _tng(self):
+    def _step(self, data_loader, phase):
         """Runs 1 training epoch"""
-        batch_time = utils.AverageMeter()
-        data_time = utils.AverageMeter()
-        losses = utils.AverageMeter()
+        # batch_time = utils.AverageMeter()
+        # data_time = utils.AverageMeter()
+        # losses = utils.AverageMeter()
+        metrics = defaultdict(list)
 
         timers = {
             k: utils.TimerStat()
             for k in ["d2h", "fwd", "grad", "apply"]
         }
 
-        # switch to train mode
-        self.model.train()
+        if phase == 'tng':
+            self.model.train()
+            step_fcn = self.tng_step
+            self._epoch += 1
+        elif phase == 'val':
+            self.model.eval()
+            step_fcn = self.val_step
+        else:
+            raise NotImplementedError(f'Phase {phase} not implemeneted')
 
-        end = time.time()
+        # end = time.time()
 
-        for i, (features, target) in enumerate(self.tng_loader):
+        for i, samples in enumerate(data_loader):
             # measure data loading time
-            data_time.update(time.time() - end)
+            # data_time.update(time.time() - end)
 
             # Create non_blocking tensors for distributed training
             with timers["d2h"]:
                 if self.num_gpus:
-                    features = features.cuda(non_blocking=True)
-                    target = target.cuda(non_blocking=True)
+                    samples = [s.cuda(non_blocking=True) for s in samples]
 
             # compute output
             with timers["fwd"]:
-                output = self.model(features)
-                loss = self.criterion(output, target)
+                metrics_ = step_fcn(samples)
+                loss = metrics_['loss']
+                for k, m in metrics_.items():
+                    metrics[k].append(utils.to_numpy(m))
 
                 # measure accuracy and record loss
-                losses.update(loss.item(), features.size(0))
+                # losses.update(loss.item(), target.size(0))
+
+            if phase != 'tng':
+                continue
 
             with timers["grad"]:
                 # compute gradients in a backward pass
@@ -180,109 +193,98 @@ class PyTorchRunner(ABC):
                 self.optimizer.step()
 
             # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
+            # batch_time.update(time.time() - end)
+            # end = time.time()
 
-        stats = {
-            "batch_time": batch_time.avg,
-            "batch_processed": losses.count,
-            "tng_loss": losses.avg,
-            "data_time": data_time.avg,
-        }
-        stats.update({k: t.mean for k, t in timers.items()})
-        return stats
+        # stats = {
+        #     "batch_time": batch_time.avg,
+        #     "batch_processed": losses.count,
+        #     "tng_loss": losses.avg,
+        #     "data_time": data_time.avg,
+        # }
+        metrics = {f'{phase}/{k}': np.mean(v) for k, v in metrics.items()}
+        # stats.update({k: t.mean for k, t in timers.items()})
+        return metrics
 
-    def _val(self):
-        batch_time = utils.AverageMeter()
-        losses = utils.AverageMeter()
+    # def _val(self):
+    #     batch_time = utils.AverageMeter()
+    #     losses = utils.AverageMeter()
 
-        # switch to evaluate mode
-        self.model.eval()
+    #     # switch to evaluate mode
+    #     self.model.eval()
 
-        with torch.no_grad():
-            end = time.time()
-            for i, (features, target) in enumerate(self.val_loader):
+    #     with torch.no_grad():
+    #         end = time.time()
+    #         for i, samples in enumerate(self.val_loader):
 
-                if self.num_gpus:
-                    features = features.cuda(non_blocking=True)
-                    target = target.cuda(non_blocking=True)
+    #             if self.num_gpus:
+    #                 samples = [s.cuda(non_blocking=True) for s in samples]
 
-                # compute output
-                output = self.model(features)
-                loss = self.criterion(output, target)
+    #             # compute output
+    #             output = self.model(samples)
+    #             target = samples[-1]
+    #             loss = self.criterion(output, target)
 
-                # measure accuracy and record loss
-                losses.update(loss.item(), features.size(0))
+    #             # measure accuracy and record loss
+    #             losses.update(loss.item(), target.size(0))
 
-                # measure elapsed time
-                batch_time.update(time.time() - end)
-                end = time.time()
+    #             # measure elapsed time
+    #             batch_time.update(time.time() - end)
+    #             end = time.time()
 
-        stats = {"batch_time": batch_time.avg, "val_loss": losses.avg}
-        return stats
+    #     stats = {"batch_time": batch_time.avg, "val_loss": losses.avg}
+    #     return stats
 
-    def _inf(self):
-        raise NotImplementedError
-        # switch to evaluate mode
-        self.model.eval()
+    # def _inf(self):
+    #     raise NotImplementedError
+    #     # switch to evaluate mode
+    #     self.model.eval()
 
-        with torch.no_grad():
-            outputs = []
-            for i, (features, target) in enumerate(self.inf_loader):
+    #     with torch.no_grad():
+    #         outputs = []
+    #         for i, (features, target) in enumerate(self.inf_loader):
 
-                if self.num_gpus:
-                    features = features.cuda(non_blocking=True)
-                    target = target.cuda(non_blocking=True)
+    #             if self.num_gpus:
+    #                 features = features.cuda(non_blocking=True)
+    #                 target = target.cuda(non_blocking=True)
 
-                # compute output
-                output = self.model(features)
-                outputs.append(output)
+    #             # compute output
+    #             output = self.model(features)
+    #             outputs.append(output)
 
-        return utils.to_numpy(torch.cat(outputs, dim=0))
+    #     return utils.to_numpy(torch.cat(outputs, dim=0))
 
-    def tng_step(self):
-        """Runs a training epoch and updates the model parameters."""
-        logger.debug(f"Begin Training Epoch {self.epoch + 1}")
-        with self._timers["training"]:
-            train_stats = self._tng()
-            train_stats["epoch"] = self.epoch
+    @abstractmethod
+    def tng_step(self, samples):
+        pass
 
-        self._epoch += 1
-
-        train_stats.update(self.stats())
-        return train_stats
-
-    def val_step(self):
-        """Evaluates the model on the validation data set."""
-        with self._timers["validation"]:
-            validation_stats = self._val()
-
-        validation_stats.update(self.stats())
-        return validation_stats
+    @abstractmethod
+    def val_step(self, samples):
+        pass
 
     def train(self):
-        train_stats = self.tng_step()
-        validation_stats = self.val_step()
+        tng_stats = self._step(self.tng_loader, 'tng')
+        val_stats = self._step(self.val_loader, 'val')
 
-        train_stats.update(validation_stats)
-        train_stats.update({'hparams': self.config['hparams']})
-        return train_stats
+        tng_stats.update(val_stats)
+        tng_stats.update({'epoch': self.epoch})
+        return tng_stats
 
-    def inference(self):
-        """Evaluates the model on the validation data set."""
-        with self._timers["inference"]:
-            outputs = self._inf()
+    # def inference(self):
+    #     """Evaluates the model on the validation data set."""
+    #     with self._timers["inference"]:
+    #         outputs = self._inf()
 
-        return outputs
+    #     return outputs
 
-    def stats(self):
-        """Returns a dictionary of statistics collected."""
-        stats = {"epoch": self.epoch}
-        for k, t in self._timers.items():
-            stats[k + "_time_mean"] = t.mean
-            stats[k + "_time_total"] = t.sum
-            t.reset()
-        return stats
+    # def stats(self):
+    #     """Returns a dictionary of statistics collected."""
+    #     stats = {"epoch": self.epoch}
+    #     for k, t in self._timers.items():
+    #         stats[k + "_time_mean"] = t.mean
+    #         stats[k + "_time_total"] = t.sum
+    #         t.reset()
+    #     return stats
 
     def get_state(self):
         """Returns the state of the runner."""
@@ -290,7 +292,7 @@ class PyTorchRunner(ABC):
             "epoch": self.epoch,
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-            "stats": self.stats()
+            # "stats": self.stats()
         }
 
     def set_state(self, state):
@@ -298,7 +300,7 @@ class PyTorchRunner(ABC):
         # TODO: restore timer stats
         self.model.load_state_dict(state["model"])
         self.optimizer.load_state_dict(state["optimizer"])
-        self.epoch = state["stats"]["epoch"]
+        self.epoch = state["epoch"]
 
     def shutdown(self):
         """Attempts to shut down the worker."""

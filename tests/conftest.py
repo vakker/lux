@@ -22,7 +22,8 @@ def get_runner_config():
             'D_in': D_in,
             'H': 100,
             'D_out': D_out,
-            'lr': 1e-4
+            'lr': 1e-4,
+            'momentum': 0.9
         }
     }
 
@@ -46,7 +47,7 @@ def runner_config():
         'trainable-gpu',
     ])
 def simple_module(request):
-    runner_config = get_runner_config()
+    s_runner_config = get_runner_config()
     config = {}
     if request.param.endswith('gpu'):
         config['num_gpus'] = 1
@@ -54,10 +55,10 @@ def simple_module(request):
         config['num_gpus'] = 0
 
     if request.param.startswith('runner'):
-        config.update(runner_config)
+        config.update(s_runner_config)
         sr = create_runner(config)
         return sr
     config['runner_creator'] = create_runner
-    config.update({'runner_config': runner_config})
+    config.update({'runner_config': s_runner_config})
     st = PyTorchTrainable(config)
     return st
