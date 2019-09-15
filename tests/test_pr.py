@@ -9,10 +9,10 @@ from .utils import create_runner, trial_str_creator
 def test_sr(simple_module):
     assert simple_module.epoch == 0
 
-    stats0 = simple_module.train()
+    stats0 = simple_module.step()
     assert simple_module.epoch == 1
 
-    stats1 = simple_module.train()
+    stats1 = simple_module.step()
     assert simple_module.epoch == 2
 
     assert stats1['tng/loss'] < stats0['tng/loss']

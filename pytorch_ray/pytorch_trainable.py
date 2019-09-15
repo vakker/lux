@@ -37,9 +37,11 @@ class PyTorchTrainable(Trainable):
         self._runner = runner_creator(config=runner_config)
 
     def _train(self):
-        tng_stats = self._runner.train()
-        tng_stats['exp_id'] = self._experiment_id
-        return tng_stats
+        return self.step()
+
+    def step(self):
+        stats = self._runner.step()
+        return stats
 
     def _save(self, checkpoint_dir):
         checkpoint = osp.join(checkpoint_dir, "model.pth")
@@ -57,6 +59,10 @@ class PyTorchTrainable(Trainable):
     @property
     def epoch(self):
         return self._runner.epoch
+
+    def fit(self):
+        for i in trange(self.config.max_epochs):
+            _ = self.step()
 
 
 class PyTorchRunner(ABC):
@@ -268,9 +274,15 @@ class PyTorchRunner(ABC):
     def val_step(self, samples):
         pass
 
-    def train(self):
-        tng_stats = self._step(self.tng_loader, 'tng')
-        val_stats = self._step(self.val_loader, 'val')
+    def tng(self):
+        return self._step(self.tng_loader, 'tng')
+
+    def val(self):
+        return self._step(self.val_loader, 'val')
+
+    def step(self):
+        tng_stats = self.tng()
+        val_stats = self.val()
 
         tng_stats.update(val_stats)
         tng_stats.update({'epoch': self.epoch})
