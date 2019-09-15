@@ -10,12 +10,18 @@ import numpy as np
 import ray
 import torch
 from ray.tune import Trainable
+from ray.tune.logger import UnifiedLogger
 from ray.tune.resources import Resources
+from tqdm import trange
 
 from . import utils
 
 logger = logging.getLogger(__name__)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+
+def logger_creator(config):
+    return UnifiedLogger(config, config['logdir'])
 
 
 class PyTorchTrainable(Trainable):
