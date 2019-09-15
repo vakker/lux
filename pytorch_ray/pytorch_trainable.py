@@ -61,7 +61,7 @@ class PyTorchTrainable(Trainable):
         return self._runner.epoch
 
     def fit(self):
-        for i in trange(self.config.max_epochs):
+        for i in trange(self.config['max_epochs']):
             _ = self.step()
 
 
