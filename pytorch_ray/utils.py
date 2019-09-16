@@ -21,6 +21,8 @@ def to_numpy(input_arr):
         return input_arr.values
     elif isinstance(input_arr, np.ndarray):
         return input_arr
+    elif isinstance(input_arr, (int, float)):
+        return input_arr
     elif isinstance(input_arr, list):
         return np.array(input_arr)
     else:
