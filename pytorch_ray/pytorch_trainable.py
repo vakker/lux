@@ -10,7 +10,6 @@ import numpy as np
 import ray
 import torch
 from ray.tune import Trainable
-from ray.tune.logger import UnifiedLogger
 from ray.tune.resources import Resources
 from tqdm import trange
 
@@ -18,10 +17,6 @@ from . import utils
 
 logger = logging.getLogger(__name__)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-
-def logger_creator(config):
-    return UnifiedLogger(config, config['logdir'])
 
 
 class PyTorchTrainable(Trainable):
@@ -35,6 +30,8 @@ class PyTorchTrainable(Trainable):
         runner_config = config['runner_config']
         runner_config.update({'num_gpus': config['num_gpus']})
         self._runner = runner_creator(config=runner_config)
+
+        self._runner.log_graph(self._result_logger)
 
     def _train(self):
         return self.step()
@@ -149,12 +146,25 @@ class PyTorchRunner(ABC):
             num_workers=config.get('ds_workers', 2),
             pin_memory=False)
 
+        logging.info(f'DataSet(tng) len: {len(self.tng_set)}')
+        logging.info(f'DataLoader(tng) len: {len(self.tng_loader)}')
+        logging.info(f'DataSet(val) len: {len(self.val_set)}')
+        logging.info(f'DataLoader(val) len: {len(self.val_loader)}')
+
+    def log_graph(self, logger):
+        self.model.eval()
+
+        for i, samples in enumerate(self.val_loader):
+            if self.num_gpus:
+                samples = [s.cuda(non_blocking=True) for s in samples]
+            self._log_graph(logger, samples)
+
     def _step(self, data_loader, phase):
         """Runs 1 training epoch"""
         # batch_time = utils.AverageMeter()
         # data_time = utils.AverageMeter()
         # losses = utils.AverageMeter()
-        metrics = defaultdict(list)
+        batch_outputs = []
 
         timers = {
             k: utils.TimerStat()
@@ -164,10 +174,12 @@ class PyTorchRunner(ABC):
         if phase == 'tng':
             self.model.train()
             step_fcn = self.tng_step
+            post_step_fcn = self.post_tng_step
             self._epoch += 1
         elif phase == 'val':
             self.model.eval()
             step_fcn = self.val_step
+            post_step_fcn = self.post_val_step
         else:
             raise NotImplementedError(f'Phase {phase} not implemeneted')
 
@@ -184,13 +196,12 @@ class PyTorchRunner(ABC):
 
             # compute output
             with timers["fwd"]:
-                metrics_ = step_fcn(samples)
-                loss = metrics_['loss']
-                for k, m in metrics_.items():
-                    metrics[k].append(utils.to_numpy(m))
+                loss, outputs = step_fcn(samples)
 
-                # measure accuracy and record loss
-                # losses.update(loss.item(), target.size(0))
+                assert isinstance(outputs, dict)
+                outputs = {k: utils.to_numpy(v) for k, v in outputs.items()}
+                outputs.update({'batch_num': i})
+                batch_outputs.append(outputs)
 
             if phase != 'tng':
                 continue
@@ -208,14 +219,17 @@ class PyTorchRunner(ABC):
             # batch_time.update(time.time() - end)
             # end = time.time()
 
+        metrics = post_step_fcn(batch_outputs)
         # stats = {
         #     "batch_time": batch_time.avg,
         #     "batch_processed": losses.count,
         #     "tng_loss": losses.avg,
         #     "data_time": data_time.avg,
         # }
-        metrics = {f'{phase}/{k}': np.mean(v) for k, v in metrics.items()}
-        # stats.update({k: t.mean for k, t in timers.items()})
+        if phase == 'tng':
+            if 'histogram' not in metrics:
+                metrics.update({'histogram': {}})
+            metrics['histogram'].update(self._get_model_params())
         return metrics
 
     # def _val(self):
@@ -271,7 +285,15 @@ class PyTorchRunner(ABC):
         pass
 
     @abstractmethod
+    def post_tng_step(self, batch_outputs):
+        pass
+
+    @abstractmethod
     def val_step(self, samples):
+        pass
+
+    @abstractmethod
+    def post_val_step(self, batch_outputs):
         pass
 
     def tng(self):
@@ -284,9 +306,7 @@ class PyTorchRunner(ABC):
         tng_stats = self.tng()
         val_stats = self.val()
 
-        tng_stats.update(val_stats)
-        tng_stats.update({'epoch': self.epoch})
-        return tng_stats
+        return {'epoch': self.epoch, 'tng': tng_stats, 'val': val_stats}
 
     # def inference(self):
     #     """Evaluates the model on the validation data set."""
@@ -303,6 +323,17 @@ class PyTorchRunner(ABC):
     #         stats[k + "_time_total"] = t.sum
     #         t.reset()
     #     return stats
+
+    def _get_model_params(self):
+        params = {
+            'param/' + name: param
+            for name, param in self.model.named_parameters()
+        }
+        params.update({
+            'grad/' + name: param.grad
+            for name, param in self.model.named_parameters()
+        })
+        return params
 
     def get_state(self):
         """Returns the state of the runner."""
