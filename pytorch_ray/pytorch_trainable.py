@@ -99,6 +99,7 @@ class PyTorchRunner(ABC):
         }
 
         self._setup(self.config)
+        self._bests = {}
 
     @property
     def epoch(self):
