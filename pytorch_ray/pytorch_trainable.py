@@ -152,13 +152,16 @@ class PyTorchRunner(ABC):
         logging.info(f'DataSet(val) len: {len(self.val_set)}')
         logging.info(f'DataLoader(val) len: {len(self.val_loader)}')
 
-    def log_graph(self, logger):
+    def log_graph(self, tb_logger):
         self.model.eval()
 
-        for i, samples in enumerate(self.val_loader):
-            if self.num_gpus:
-                samples = [s.cuda(non_blocking=True) for s in samples]
-            self._log_graph(logger, samples)
+        samples = next(iter(self.val_loader))
+        if self.num_gpus:
+            samples = [s.cuda(non_blocking=True) for s in samples]
+        self._log_graph(tb_logger, samples)
+
+    def _log_graph(self, tb_logger, samples):
+        pass
 
     def _step(self, data_loader, phase):
         """Runs 1 training epoch"""
