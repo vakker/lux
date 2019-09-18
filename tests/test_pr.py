@@ -83,21 +83,22 @@ def test_trainable_val_freq(trainable, val_freq):
 
 
 @pytest.mark.parametrize("num_gpus", [0, 1])
-def test_tune_train(start_ray, runner_config, num_gpus):
+def test_tune_train(start_ray, trainable_config, num_gpus):
 
-    config = {
-        "runner_creator": create_runner,
+    trainable_config.update({
         "num_gpus": num_gpus,
         "num_cpus": 2,
-    }
-    config.update({'runner_config': runner_config})
-    config['runner_config']['hparams']['lr'] = tune.grid_search([1e-5, 1e-4])
-    config['runner_config']['hparams']['momentum'] = tune.grid_search([0, 0.9])
+    })
+
+    trainable_config['runner_config']['hparams']['lr'] = tune.grid_search(
+        [1e-5, 1e-4])
+    trainable_config['runner_config']['hparams'][
+        'momentum'] = tune.grid_search([0, 0.9])
 
     analysis = tune.run(
         PyTorchTrainable,
         num_samples=1,
-        config=config,
+        config=trainable_config,
         trial_name_creator=trial_str_creator,
         stop={"training_iteration": 5},
         local_dir='./logs',
