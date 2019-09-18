@@ -233,54 +233,6 @@ class PyTorchRunner(ABC):
             metrics['histogram'].update(self._get_model_params())
         return metrics
 
-    # def _val(self):
-    #     batch_time = utils.AverageMeter()
-    #     losses = utils.AverageMeter()
-
-    #     # switch to evaluate mode
-    #     self.model.eval()
-
-    #     with torch.no_grad():
-    #         end = time.time()
-    #         for i, samples in enumerate(self.val_loader):
-
-    #             if self.num_gpus:
-    #                 samples = [s.cuda(non_blocking=True) for s in samples]
-
-    #             # compute output
-    #             output = self.model(samples)
-    #             target = samples[-1]
-    #             loss = self.criterion(output, target)
-
-    #             # measure accuracy and record loss
-    #             losses.update(loss.item(), target.size(0))
-
-    #             # measure elapsed time
-    #             batch_time.update(time.time() - end)
-    #             end = time.time()
-
-    #     stats = {"batch_time": batch_time.avg, "val_loss": losses.avg}
-    #     return stats
-
-    # def _inf(self):
-    #     raise NotImplementedError
-    #     # switch to evaluate mode
-    #     self.model.eval()
-
-    #     with torch.no_grad():
-    #         outputs = []
-    #         for i, (features, target) in enumerate(self.inf_loader):
-
-    #             if self.num_gpus:
-    #                 features = features.cuda(non_blocking=True)
-    #                 target = target.cuda(non_blocking=True)
-
-    #             # compute output
-    #             output = self.model(features)
-    #             outputs.append(output)
-
-    #     return utils.to_numpy(torch.cat(outputs, dim=0))
-
     @abstractmethod
     def tng_step(self, samples):
         pass
@@ -308,13 +260,6 @@ class PyTorchRunner(ABC):
         val_stats = self.val()
 
         return {'epoch': self.epoch, 'tng': tng_stats, 'val': val_stats}
-
-    # def inference(self):
-    #     """Evaluates the model on the validation data set."""
-    #     with self._timers["inference"]:
-    #         outputs = self._inf()
-
-    #     return outputs
 
     # def stats(self):
     #     """Returns a dictionary of statistics collected."""
