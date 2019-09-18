@@ -71,10 +71,22 @@ class SimpleRunner(PyTorchRunner):
 
         outputs = self.model(inputs)
         loss = self.criterion(outputs, targets)
-        return {'loss': loss}
+        return loss, {'loss': loss}
 
     def tng_step(self, samples):
         return self.fwd_step(samples)
 
     def val_step(self, samples):
         return self.fwd_step(samples)
+
+    def post_tng_step(self, batch_outputs):
+        scalar = {
+            'tng/loss': np.mean([ba['loss'] for ba in batch_outputs]),
+        }
+        return {'scalar': scalar}
+
+    def post_val_step(self, batch_outputs):
+        scalar = {
+            'val/loss': np.mean([ba['loss'] for ba in batch_outputs]),
+        }
+        return {'scalar': scalar}

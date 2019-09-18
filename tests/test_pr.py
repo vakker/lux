@@ -15,7 +15,7 @@ def test_sr(simple_module):
     stats1 = simple_module.step()
     assert simple_module.epoch == 2
 
-    assert stats1['tng/loss'] < stats0['tng/loss']
+    assert stats1['tng']['scalar']['tng/loss'] < stats0['tng']['scalar']['tng/loss']
 
 
 @pytest.mark.parametrize("num_gpus", [0, 1])
