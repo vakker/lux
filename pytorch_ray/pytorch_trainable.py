@@ -14,16 +14,17 @@ from ray.tune.resources import Resources
 from tqdm import trange
 
 from . import utils
+from .logger import PRLogger, pr_logger_creator
 
 logger = logging.getLogger(__name__)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class PyTorchTrainable(Trainable):
-    @classmethod
-    def default_resource_request(cls, config):
-        return Resources(
-            cpu=config.get("num_cpus", 2), gpu=config.get("num_gpus", 0))
+    def __init__(self, config=None, logger_creator=None):
+        if logger_creator is None:
+            logger_creator = pr_logger_creator
+        super().__init__(config, logger_creator)
 
     def _setup(self, config):
         runner_creator = config['runner_creator']
@@ -33,12 +34,37 @@ class PyTorchTrainable(Trainable):
 
         self._runner.log_graph(self._result_logger)
 
-    def _train(self):
-        return self.step()
+        if 'restore_from' in config:
+            self.restore(config['restore_from'])
 
-    def step(self):
-        stats = self._runner.step()
-        return stats
+    def _train(self):
+        tng_stats = self._runner.tng()
+        if (self.epoch == 1 or self.epoch % self.config.get('val_freq', 1) == 0
+                or self.epoch == self.config['max_epochs']):
+            val_stats = self._runner.val()
+        else:
+            val_stats = {}
+
+        if (self.epoch == 1
+                or self.epoch % self.config.get('save_freq', 1) == 0
+                or self.epoch == self.config['max_epochs']):
+            self.save()
+
+        keys = set(list(tng_stats.keys()) + list(val_stats.keys()))
+        stats = {
+            k: {
+                **tng_stats.get(k, {}),
+                **val_stats.get(k, {})
+            }
+            for k in keys
+        }
+
+        if isinstance(self._result_logger, PRLogger):
+            self._result_logger.log(stats, self.epoch)
+        return stats['scalar']
+
+    def val(self):
+        return self._runner.val()['scalar']
 
     def _save(self, checkpoint_dir):
         checkpoint = osp.join(checkpoint_dir, "model.pth")
@@ -60,6 +86,11 @@ class PyTorchTrainable(Trainable):
     def fit(self):
         for i in trange(self.config['max_epochs']):
             _ = self.train()
+
+    @classmethod
+    def default_resource_request(cls, config):
+        return Resources(
+            cpu=config.get("num_cpus", 2), gpu=config.get("num_gpus", 0))
 
 
 class PyTorchRunner(ABC):
@@ -234,6 +265,7 @@ class PyTorchRunner(ABC):
             if 'histogram' not in metrics:
                 metrics.update({'histogram': {}})
             metrics['histogram'].update(self._get_model_params())
+
         return metrics
 
     @abstractmethod
@@ -258,21 +290,6 @@ class PyTorchRunner(ABC):
     def val(self):
         return self._step(self.val_loader, 'val')
 
-    def step(self):
-        tng_stats = self.tng()
-        val_stats = self.val()
-
-        return {'epoch': self.epoch, 'tng': tng_stats, 'val': val_stats}
-
-    # def stats(self):
-    #     """Returns a dictionary of statistics collected."""
-    #     stats = {"epoch": self.epoch}
-    #     for k, t in self._timers.items():
-    #         stats[k + "_time_mean"] = t.mean
-    #         stats[k + "_time_total"] = t.sum
-    #         t.reset()
-    #     return stats
-
     def _get_model_params(self):
         params = {
             'param/' + name: param
@@ -290,15 +307,13 @@ class PyTorchRunner(ABC):
             "epoch": self.epoch,
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-            # "stats": self.stats()
         }
 
     def set_state(self, state):
         """Sets the state of the model."""
-        # TODO: restore timer stats
         self.model.load_state_dict(state["model"])
         self.optimizer.load_state_dict(state["optimizer"])
-        self.epoch = state["epoch"]
+        self._epoch = state["epoch"]
 
     def shutdown(self):
         """Attempts to shut down the worker."""
