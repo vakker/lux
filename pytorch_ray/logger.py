@@ -5,7 +5,7 @@ from ray.tune.result import TIMESTEPS_TOTAL, TRAINING_ITERATION
 from torch.utils.tensorboard import SummaryWriter
 
 
-def logger_creator(config):
+def pr_logger_creator(config):
     return PRLogger(config, config['logdir'])
 
 
@@ -19,17 +19,16 @@ class PRLogger(Logger):
         self._log_hparams()
 
     def on_result(self, result):
-        step = result.get(TIMESTEPS_TOTAL) or result[TRAINING_ITERATION]
+        pass
 
+    def log(self, result, step):
         tmp = result.copy()
 
         log_types = ['scalar', 'histogram', 'image', 'figure', 'text']
-        for phase in ['tng', 'val']:
-            metrics = tmp.get(phase, {})
-            for t in log_types:
-                for k, v in metrics.get(t, {}).items():
-                    log_fcn = getattr(self._tb_writer, f'add_{t}')
-                    log_fcn(k, v, global_step=step)
+        for t in log_types:
+            for k, v in tmp.get(t, {}).items():
+                log_fcn = getattr(self._tb_writer, f'add_{t}')
+                log_fcn(k, v, global_step=step)
 
         self._tb_writer.flush()
 
