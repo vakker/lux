@@ -1,9 +1,12 @@
+from os import path as osp
+
 import pytest
 from ray import tune
 
 from pytorch_ray import PyTorchTrainable
+from pytorch_ray.logger import pr_logger_creator
 
-from .utils import create_runner, trial_str_creator
+from .utils import create_runner, get_chkp_dir, trial_str_creator
 
 
 def test_trainable0(trainable):
@@ -35,6 +38,7 @@ def test_trainable_save_restore0(trainable):
     assert trainable._iteration == 1
 
     chkp_path = trainable.save()
+    assert get_chkp_dir(chkp_path) == 'checkpoint_1'
     trainable.restore(chkp_path)
     stats1 = trainable.val()
     assert trainable.epoch == 1
@@ -57,6 +61,7 @@ def test_trainable_save_restore1(trainable_config):
     assert trainable0._iteration == 3
 
     chkp_path = trainable0.save()
+    assert get_chkp_dir(chkp_path) == 'checkpoint_3'
 
     trainable_config['restore_from'] = chkp_path
     trainable1 = PyTorchTrainable(trainable_config)
@@ -97,6 +102,7 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
 
     analysis = tune.run(
         PyTorchTrainable,
+        loggers=[pr_logger_creator],
         num_samples=1,
         config=trainable_config,
         trial_name_creator=trial_str_creator,

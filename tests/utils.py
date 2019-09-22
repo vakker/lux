@@ -1,8 +1,14 @@
+from os import path as osp
+
 import numpy as np
 import torch
 from torch import nn
 
 from pytorch_ray import PyTorchRunner
+
+
+def get_chkp_dir(chkp_path):
+    return osp.basename(osp.dirname(chkp_path))
 
 
 def trial_str_creator(trial):
@@ -65,7 +71,7 @@ class SimpleRunner(PyTorchRunner):
         optimizer = optimizer_cls(model.parameters(), hparams['lr'])
         return criterion, optimizer
 
-    def fwd_step(self, samples):
+    def tng_step(self, samples):
         inputs = samples[0]
         targets = samples[1]
 
@@ -73,11 +79,14 @@ class SimpleRunner(PyTorchRunner):
         loss = self.criterion(outputs, targets)
         return loss, {'loss': loss}
 
-    def tng_step(self, samples):
-        return self.fwd_step(samples)
-
     def val_step(self, samples):
-        return self.fwd_step(samples)
+        inputs = samples[0]
+        targets = samples[1]
+
+        outputs = self.model(inputs)
+        errors = targets - outputs
+        loss = self.criterion(outputs, targets)
+        return loss, {'loss': loss, 'errors': errors}
 
     def post_tng_step(self, batch_outputs):
         scalar = {
@@ -89,4 +98,9 @@ class SimpleRunner(PyTorchRunner):
         scalar = {
             'val/loss': np.mean([ba['loss'] for ba in batch_outputs]),
         }
-        return {'scalar': scalar}
+
+        histogram = {
+            'val/errors':
+            np.concatenate([ba['errors'] for ba in batch_outputs], axis=0)
+        }
+        return {'scalar': scalar, 'histogram': histogram}
