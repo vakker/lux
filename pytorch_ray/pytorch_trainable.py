@@ -4,6 +4,7 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from glob import glob
 from os import path as osp
 
 import numpy as np
@@ -11,7 +12,7 @@ import ray
 import torch
 from ray.tune import Trainable
 from ray.tune.resources import Resources
-from tqdm import trange
+from tqdm import tqdm, trange
 
 from . import utils
 from .logger import PRLogger, pr_logger_creator
@@ -34,37 +35,60 @@ class PyTorchTrainable(Trainable):
 
         self._runner.log_graph(self._result_logger)
 
-        if 'restore_from' in config:
+        if config.get('reload'):
+            dirs = glob(osp.join(self.logdir, 'checkpoint_*'))
+            dirs = sorted(dirs, key=lambda x: int(x.split('_')[-1]))
+            self.restore(osp.join(dirs[-1], 'model.pth'))
+        elif config.get('restore_from'):
             self.restore(config['restore_from'])
 
     def _train(self):
-        tng_stats = self._runner.tng()
-        if (self.epoch == 1 or self.epoch % self.config.get('val_freq', 1) == 0
-                or self.epoch == self.config['max_epochs']):
-            val_stats = self._runner.val()
-        else:
-            val_stats = {}
+        timers = defaultdict(utils.TimerStat)
 
-        if (self.epoch == 1
-                or self.epoch % self.config.get('save_freq', 1) == 0
-                or self.epoch == self.config['max_epochs']):
-            self.save()
+        with timers["tng"]:
+            tng_stats = self._runner.tng()
 
-        keys = set(list(tng_stats.keys()) + list(val_stats.keys()))
-        stats = {
-            k: {
-                **tng_stats.get(k, {}),
-                **val_stats.get(k, {})
+        with timers["val"]:
+            if (self.epoch == 1
+                    or self.epoch % self.config.get('val_freq', 1) == 0
+                    or self.epoch == self.config['max_epochs']):
+                val_stats = self._runner.val()
+            else:
+                val_stats = {}
+
+        with timers["save"]:
+            if (self.epoch == 1
+                    or self.epoch % self.config.get('save_freq', 1) == 0
+                    or self.epoch == self.config['max_epochs']):
+                self.save()
+
+        with timers["log"]:
+            keys = set(list(tng_stats.keys()) + list(val_stats.keys()))
+            stats = {
+                k: {
+                    **tng_stats.get(k, {}),
+                    **val_stats.get(k, {})
+                }
+                for k in keys
             }
-            for k in keys
-        }
 
-        if isinstance(self._result_logger, PRLogger):
-            self._result_logger.log(stats, self.epoch)
-        return stats['scalar']
+            if isinstance(self._result_logger, PRLogger):
+                self._result_logger.log(stats, self.epoch)
+
+        logging.debug('#' * 10)
+        logging.debug('Trainable')
+        for k, v in timers.items():
+            t_mean = v.mean
+            if t_mean is not None:
+                logging.debug(f'{k}: {t_mean:.4f}')
+        logging.debug('#' * 10)
+        return {'scalar': stats['scalar']}
 
     def val(self):
         return self._runner.val()['scalar']
+
+    def inf(self, subset='val'):
+        return self._runner.inf(subset)
 
     def _save(self, checkpoint_dir):
         checkpoint = osp.join(checkpoint_dir, "model.pth")
@@ -84,7 +108,7 @@ class PyTorchTrainable(Trainable):
         return self._runner.epoch
 
     def fit(self):
-        for i in trange(self.config['max_epochs']):
+        for i in trange(self.config['max_epochs'], initial=self.epoch):
             _ = self.train()
 
     @classmethod
@@ -167,7 +191,7 @@ class PyTorchRunner(ABC):
         self.tng_loader = torch.utils.data.DataLoader(
             self.tng_set,
             batch_size=config.get('batch_size', 4),
-            shuffle=True,
+            shuffle=config.get('shuff', False),
             num_workers=config.get('ds_workers', 2),
             pin_memory=False)
 
@@ -197,13 +221,13 @@ class PyTorchRunner(ABC):
     def _step(self, data_loader, phase):
         """Runs 1 training epoch"""
         # batch_time = utils.AverageMeter()
-        # data_time = utils.AverageMeter()
+        data_time = []
         # losses = utils.AverageMeter()
         batch_outputs = []
 
         timers = {
             k: utils.TimerStat()
-            for k in ["d2h", "fwd", "grad", "apply"]
+            for k in ["d2h", "fwd", "log", "grad", "apply", "log2"]
         }
 
         if phase == 'tng':
@@ -215,14 +239,18 @@ class PyTorchRunner(ABC):
             self.model.eval()
             step_fcn = self.val_step
             post_step_fcn = self.post_val_step
+        elif phase == 'inf':
+            self.model.eval()
+            step_fcn = self.inf_step
+            post_step_fcn = self.post_inf_step
         else:
             raise NotImplementedError(f'Phase {phase} not implemeneted')
 
-        # end = time.time()
+        end = time.time()
 
         for i, samples in enumerate(data_loader):
             # measure data loading time
-            # data_time.update(time.time() - end)
+            data_time.append(time.time() - end)
 
             # Create non_blocking tensors for distributed training
             with timers["d2h"]:
@@ -233,6 +261,7 @@ class PyTorchRunner(ABC):
             with timers["fwd"]:
                 loss, outputs = step_fcn(samples)
 
+            with timers["log"]:
                 assert isinstance(outputs, dict)
                 outputs = {k: utils.to_numpy(v) for k, v in outputs.items()}
                 outputs.update({'batch_num': i})
@@ -252,9 +281,10 @@ class PyTorchRunner(ABC):
 
             # measure elapsed time
             # batch_time.update(time.time() - end)
-            # end = time.time()
+            end = time.time()
 
-        metrics = post_step_fcn(batch_outputs)
+        with timers["log2"]:
+            metrics = post_step_fcn(batch_outputs)
         # stats = {
         #     "batch_time": batch_time.avg,
         #     "batch_processed": losses.count,
@@ -265,6 +295,13 @@ class PyTorchRunner(ABC):
             if 'histogram' not in metrics:
                 metrics.update({'histogram': {}})
             metrics['histogram'].update(self._get_model_params())
+        for k, v in timers.items():
+            t_mean = v.mean
+            if t_mean is not None:
+                logging.debug(f'{k}: {t_mean:.4f}')
+        t_mean = np.mean(data_time)
+        logging.debug(f'data_time: {t_mean:.4f}')
+        logging.debug('#' * 10)
 
         return metrics
 
@@ -284,11 +321,25 @@ class PyTorchRunner(ABC):
     def post_val_step(self, batch_outputs):
         pass
 
+    def inf_step(self, samples):
+        raise NotImplementedError
+
+    def post_inf_step(self, batch_outputs):
+        raise NotImplementedError
+
     def tng(self):
         return self._step(self.tng_loader, 'tng')
 
     def val(self):
         return self._step(self.val_loader, 'val')
+
+    def inf(self, subset='val'):
+        if subset == 'val':
+            return self._step(self.val_loader, 'inf')
+        elif subset == 'tng':
+            return self._step(self.tng_loader, 'inf')
+        else:
+            raise NotImplementedError
 
     def _get_model_params(self):
         params = {
