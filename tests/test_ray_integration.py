@@ -34,7 +34,7 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
 
     # checks loss decreasing for every trials
     for path, df in analysis.trial_dataframes.items():
-        tng_loss1 = df.loc[0, "tng/loss"]
-        tng_loss2 = df.loc[1, "tng/loss"]
+        tng_loss1 = df.loc[0, "scalar/tng/loss"]
+        tng_loss2 = df.loc[1, "scalar/tng/loss"]
 
         assert tng_loss2 < tng_loss1
