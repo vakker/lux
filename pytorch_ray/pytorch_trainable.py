@@ -4,6 +4,7 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from datetime import datetime
 from glob import glob
 from os import path as osp
 
@@ -12,6 +13,10 @@ import ray
 import torch
 from ray.tune import Trainable
 from ray.tune.resources import Resources
+from ray.tune.result import (DEFAULT_RESULTS_DIR, DONE, EPISODES_THIS_ITER,
+                             EPISODES_TOTAL, RESULT_DUPLICATE,
+                             TIME_THIS_ITER_S, TIMESTEPS_THIS_ITER,
+                             TIMESTEPS_TOTAL, TRAINING_ITERATION)
 from tqdm import tqdm, trange
 
 from . import utils
@@ -33,7 +38,7 @@ class PyTorchTrainable(Trainable):
         runner_config.update({'num_gpus': config['num_gpus']})
         self._runner = runner_creator(config=runner_config)
 
-        self._runner.log_graph(self._result_logger)
+        # self._runner.log_graph(self._result_logger)
 
         if config.get('reload'):
             dirs = glob(osp.join(self.logdir, 'checkpoint_*'))
@@ -84,8 +89,82 @@ class PyTorchTrainable(Trainable):
         logging.debug('#' * 10)
         return stats
 
+    def train(self):
+        start = time.time()
+        result_all = self._train()
+        assert isinstance(result_all, dict), "_train() needs to return a dict."
+        result = result_all['scalar']
+        assert isinstance(result, dict), "_train() needs to return a dict."
+
+        # We do not modify internal state nor update this result if duplicate.
+        if RESULT_DUPLICATE in result:
+            return result
+
+        result = result.copy()
+
+        self._iteration += 1
+        self._iterations_since_restore += 1
+
+        if result.get(TIME_THIS_ITER_S) is not None:
+            time_this_iter = result[TIME_THIS_ITER_S]
+        else:
+            time_this_iter = time.time() - start
+        self._time_total += time_this_iter
+        self._time_since_restore += time_this_iter
+
+        result.setdefault(DONE, False)
+
+        # self._timesteps_total should only be tracked if increments provided
+        if result.get(TIMESTEPS_THIS_ITER) is not None:
+            if self._timesteps_total is None:
+                self._timesteps_total = 0
+            self._timesteps_total += result[TIMESTEPS_THIS_ITER]
+            self._timesteps_since_restore += result[TIMESTEPS_THIS_ITER]
+
+        # self._episodes_total should only be tracked if increments provided
+        if result.get(EPISODES_THIS_ITER) is not None:
+            if self._episodes_total is None:
+                self._episodes_total = 0
+            self._episodes_total += result[EPISODES_THIS_ITER]
+
+        # self._timesteps_total should not override user-provided total
+        result.setdefault(TIMESTEPS_TOTAL, self._timesteps_total)
+        result.setdefault(EPISODES_TOTAL, self._episodes_total)
+        result.setdefault(TRAINING_ITERATION, self._iteration)
+        result_all.setdefault(TIMESTEPS_TOTAL, self._timesteps_total)
+        result_all.setdefault(EPISODES_TOTAL, self._episodes_total)
+        result_all.setdefault(TRAINING_ITERATION, self._iteration)
+
+        # Provides auto-filled neg_mean_loss for avoiding regressions
+        if result.get("mean_loss"):
+            result.setdefault("neg_mean_loss", -result["mean_loss"])
+
+        now = datetime.today()
+        result.update(
+            experiment_id=self._experiment_id,
+            date=now.strftime("%Y-%m-%d_%H-%M-%S"),
+            timestamp=int(time.mktime(now.timetuple())),
+            time_this_iter_s=time_this_iter,
+            time_total_s=self._time_total,
+            pid=os.getpid(),
+            hostname=os.uname()[1],
+            node_ip=self._local_ip,
+            config=self.config,
+            time_since_restore=self._time_since_restore,
+            timesteps_since_restore=self._timesteps_since_restore,
+            iterations_since_restore=self._iterations_since_restore)
+
+        monitor_data = self._monitor.get_data()
+        if monitor_data:
+            result.update(monitor_data)
+            result_all.update(monitor_data)
+
+        self._log_result(result_all)
+
+        return result
+
     def val(self):
-        return self._runner.val()
+        return self._runner.val()['scalar']
 
     def inf(self, subset='val'):
         return self._runner.inf(subset)
@@ -207,16 +286,16 @@ class PyTorchRunner(ABC):
         logging.info(f'DataSet(val) len: {len(self.val_set)}')
         logging.info(f'DataLoader(val) len: {len(self.val_loader)}')
 
-    def log_graph(self, tb_logger):
-        self.model.eval()
+    # def log_graph(self, tb_logger):
+    #     self.model.eval()
 
-        samples = next(iter(self.val_loader))
-        if self.num_gpus:
-            samples = [s.cuda(non_blocking=True) for s in samples]
-        self._log_graph(tb_logger, samples)
+    #     samples = next(iter(self.val_loader))
+    #     if self.num_gpus:
+    #         samples = [s.cuda(non_blocking=True) for s in samples]
+    #     self._log_graph(tb_logger, samples)
 
-    def _log_graph(self, tb_logger, samples):
-        pass
+    # def _log_graph(self, tb_logger, samples):
+    #     pass
 
     def _step(self, data_loader, phase):
         """Runs 1 training epoch"""

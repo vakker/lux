@@ -11,7 +11,6 @@ from .utils import create_runner, get_chkp_dir, trial_str_creator
 
 @pytest.mark.parametrize("num_gpus", [0, 1])
 def test_tune_train(start_ray, trainable_config, num_gpus):
-
     trainable_config.update({
         "num_gpus": num_gpus,
         "num_cpus": 2,
@@ -29,12 +28,13 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
         config=trainable_config,
         trial_name_creator=trial_str_creator,
         stop={"training_iteration": 5},
+        checkpoint_score_attr='min-val/loss',
         local_dir='./logs',
         verbose=1)
 
     # checks loss decreasing for every trials
     for path, df in analysis.trial_dataframes.items():
-        tng_loss1 = df.loc[0, "scalar/tng/loss"]
-        tng_loss2 = df.loc[1, "scalar/tng/loss"]
+        tng_loss1 = df.loc[0, "tng/loss"]
+        tng_loss2 = df.loc[1, "tng/loss"]
 
         assert tng_loss2 < tng_loss1
