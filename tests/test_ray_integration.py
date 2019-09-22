@@ -28,7 +28,8 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
         config=trainable_config,
         trial_name_creator=trial_str_creator,
         stop={"training_iteration": 5},
-        checkpoint_score_attr='min-val/loss',
+        checkpoint_score_attr='min-scalar/val/loss',
+        keep_checkpoints_num=2,
         local_dir='./logs',
         verbose=1)
 

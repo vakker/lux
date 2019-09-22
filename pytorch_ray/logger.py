@@ -83,9 +83,10 @@ class PRLogger(Logger):
 
                 log_types = ['scalar', 'histogram', 'image', 'figure', 'text']
                 for t in log_types:
-                    for k, v in tmp.get(t, {}).items():
-                        log_fcn = getattr(tf.summary, t)
-                        log_fcn(k, v, step=step)
+                    for k, v in tmp.items():
+                        if k.startswith(t + '/'):
+                            log_fcn = getattr(tf.summary, t)
+                            log_fcn(k[len(t + '/'):], v, step=step)
 
         self._file_writer.flush()
 

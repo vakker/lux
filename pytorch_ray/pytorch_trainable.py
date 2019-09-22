@@ -17,6 +17,7 @@ from ray.tune.result import (DEFAULT_RESULTS_DIR, DONE, EPISODES_THIS_ITER,
                              EPISODES_TOTAL, RESULT_DUPLICATE,
                              TIME_THIS_ITER_S, TIMESTEPS_THIS_ITER,
                              TIMESTEPS_TOTAL, TRAINING_ITERATION)
+from ray.tune.util import flatten_dict
 from tqdm import tqdm, trange
 
 from . import utils
@@ -87,10 +88,14 @@ class PyTorchTrainable(Trainable):
             if t_mean is not None:
                 logging.debug(f'{k}: {t_mean:.4f}')
         logging.debug('#' * 10)
-        return stats
+
+        flat_stats = flatten_dict(stats, delimiter="/")
+        return flat_stats
 
     def val(self):
-        return self._runner.val()
+        stats = self._runner.val()
+        flat_stats = flatten_dict(stats, delimiter="/")
+        return flat_stats
 
     def inf(self, subset='val'):
         return self._runner.inf(subset)
