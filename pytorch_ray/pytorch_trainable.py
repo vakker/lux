@@ -82,10 +82,10 @@ class PyTorchTrainable(Trainable):
             if t_mean is not None:
                 logging.debug(f'{k}: {t_mean:.4f}')
         logging.debug('#' * 10)
-        return {'scalar': stats['scalar']}
+        return stats
 
     def val(self):
-        return self._runner.val()['scalar']
+        return self._runner.val()
 
     def inf(self, subset='val'):
         return self._runner.inf(subset)
@@ -343,11 +343,11 @@ class PyTorchRunner(ABC):
 
     def _get_model_params(self):
         params = {
-            'param/' + name: param
+            'param/' + name: utils.to_numpy(param)
             for name, param in self.model.named_parameters()
         }
         params.update({
-            'grad/' + name: param.grad
+            'grad/' + name: utils.to_numpy(param.grad)
             for name, param in self.model.named_parameters()
         })
         return params

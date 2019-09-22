@@ -24,7 +24,7 @@ def test_trainable0(trainable):
     assert trainable._runner.epoch == 2
     assert trainable._iteration == 2
 
-    assert stats1['tng/loss'] < stats0['tng/loss']
+    assert stats1['scalar']['tng/loss'] < stats0['scalar']['tng/loss']
 
 
 def test_trainable_save_restore0(trainable):
@@ -45,7 +45,7 @@ def test_trainable_save_restore0(trainable):
     assert trainable._runner.epoch == 1
     assert trainable._iteration == 1
 
-    assert stats1['val/loss'] == stats0['val/loss']
+    assert stats1['scalar']['val/loss'] == stats0['scalar']['val/loss']
 
 
 def test_trainable_save_restore1(trainable_config):
@@ -70,7 +70,7 @@ def test_trainable_save_restore1(trainable_config):
     assert trainable1._runner.epoch == 3
     assert trainable1._iteration == 3
 
-    assert stats1['val/loss'] == stats0['val/loss']
+    assert stats1['scalar']['val/loss'] == stats0['scalar']['val/loss']
 
 
 @pytest.mark.parametrize("val_freq", [3, 5])
@@ -79,7 +79,7 @@ def test_trainable_val_freq(trainable, val_freq):
     trainable.config['val_freq'] = val_freq
 
     for i in range(1, max_epochs + 1):
-        stats = trainable.train()
+        stats = trainable.train()['scalar']
         assert 'tng/loss' in stats
         if i == 1 or i % val_freq == 0 or i == max_epochs:
             assert 'val/loss' in stats
@@ -112,7 +112,7 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
 
     # checks loss decreasing for every trials
     for path, df in analysis.trial_dataframes.items():
-        tng_loss1 = df.loc[0, "tng/loss"]
-        tng_loss2 = df.loc[1, "tng/loss"]
+        tng_loss1 = df.loc[0, "scalar/tng/loss"]
+        tng_loss2 = df.loc[1, "scalar/tng/loss"]
 
         assert tng_loss2 < tng_loss1
