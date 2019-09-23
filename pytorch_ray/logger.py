@@ -1,7 +1,7 @@
 from os import path as osp
 
 import tensorflow as tf
-from ray.tune.logger import Logger
+from ray.tune.logger import CSVLogger, JsonLogger, Logger
 from ray.tune.result import TIMESTEPS_TOTAL, TRAINING_ITERATION
 from tensorboard.plugins.hparams import api as hp
 from tensorflow.python.eager import context
@@ -13,6 +13,8 @@ def pr_logger_creator(config, logdir=None, trial=None):
         logdir = config['logdir']
     return PRLogger(config, logdir, trial)
 
+
+LOGGERS = [JsonLogger, CSVLogger, pr_logger_creator]
 
 # class PRLogger(Logger):
 #     def _init(self):
