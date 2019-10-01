@@ -310,6 +310,11 @@ class PyTorchRunner(ABC):
                 self.optimizer.zero_grad()
                 loss.backward()
 
+                clip_norm = self.config.get('clip_norm')
+                if clip_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                                   clip_norm)
+
             with timers["apply"]:
                 # Call step of optimizer to update model params
                 self.optimizer.step()
