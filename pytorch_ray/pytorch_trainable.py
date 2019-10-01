@@ -34,6 +34,9 @@ class PyTorchTrainable(Trainable):
         super().__init__(config, logger_creator)
 
     def _setup(self, config):
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.fastest = True
+
         runner_creator = config['runner_creator']
         runner_config = config['runner_config']
         runner_config.update({'num_gpus': config['num_gpus']})
@@ -97,8 +100,8 @@ class PyTorchTrainable(Trainable):
         flat_stats = flatten_dict(stats, delimiter="/")
         return flat_stats
 
-    def inf(self, subset='val'):
-        return self._runner.inf(subset)
+    def inf(self, dataset):
+        return self._runner.inf(dataset)
 
     def _save(self, checkpoint_dir):
         checkpoint = osp.join(checkpoint_dir, "model.pth")
@@ -123,8 +126,29 @@ class PyTorchTrainable(Trainable):
 
     @classmethod
     def default_resource_request(cls, config):
+
+        gpu_used = get_calib(config, 'gpu')
+        gpu_mem = 11175 * 1024 * 1024
+        num_gpus = min(1, max(0.12, 1.4 * gpu_used / gpu_mem))
+
+        # mem_used = 1.1 * get_calib(config, 'mem')
+        mem_used = 0
+
         return Resources(
-            cpu=config.get("num_cpus", 2), gpu=config.get("num_gpus", 0))
+            cpu=config.get("num_cpus", 2), gpu=num_gpus, memory=mem_used)
+
+
+def get_calib(config, element):
+    calib = config.get('calib')
+
+    if calib is not None:
+        hparam_id = ','.join([
+            f'{k}={v}' for k, v in config['runner_config']['hparams'].items()
+        ])
+        used = calib[element].get(hparam_id, 0)
+        return used
+    else:
+        return 0
 
 
 class PyTorchRunner(ABC):
@@ -198,24 +222,25 @@ class PyTorchRunner(ABC):
         logger.debug("Creating dataset")
         self.tng_set, self.val_set = self.data_creator(config)
 
-        self.tng_loader = torch.utils.data.DataLoader(
-            self.tng_set,
-            batch_size=config.get('batch_size', 4),
-            shuffle=config.get('shuff', False),
-            num_workers=config.get('ds_workers', 2),
-            pin_memory=False)
+        if self.tng_set is not None:
+            self.tng_loader = torch.utils.data.DataLoader(
+                self.tng_set,
+                batch_size=config.get('batch_size', 4),
+                shuffle=config.get('shuff', False),
+                num_workers=config.get('ds_workers', 2),
+                pin_memory=True)
+            logging.info(f'DataSet(tng) len: {len(self.tng_set)}')
+            logging.info(f'DataLoader(tng) len: {len(self.tng_loader)}')
 
-        self.val_loader = torch.utils.data.DataLoader(
-            self.val_set,
-            batch_size=config.get('batch_size', 4),
-            shuffle=False,
-            num_workers=config.get('ds_workers', 2),
-            pin_memory=False)
-
-        logging.info(f'DataSet(tng) len: {len(self.tng_set)}')
-        logging.info(f'DataLoader(tng) len: {len(self.tng_loader)}')
-        logging.info(f'DataSet(val) len: {len(self.val_set)}')
-        logging.info(f'DataLoader(val) len: {len(self.val_loader)}')
+        if self.val_set is not None:
+            self.val_loader = torch.utils.data.DataLoader(
+                self.val_set,
+                batch_size=config.get('batch_size', 4),
+                shuffle=False,
+                num_workers=config.get('ds_workers', 2),
+                pin_memory=True)
+            logging.info(f'DataSet(val) len: {len(self.val_set)}')
+            logging.info(f'DataLoader(val) len: {len(self.val_loader)}')
 
     # def log_graph(self, tb_logger):
     #     self.model.eval()
@@ -295,16 +320,12 @@ class PyTorchRunner(ABC):
 
         with timers["log2"]:
             metrics = post_step_fcn(batch_outputs)
-        # stats = {
-        #     "batch_time": batch_time.avg,
-        #     "batch_processed": losses.count,
-        #     "tng_loss": losses.avg,
-        #     "data_time": data_time.avg,
-        # }
-        if phase == 'tng':
+
+        if phase == 'tng' and self.config.get('log_model_params'):
             if 'histogram' not in metrics:
                 metrics.update({'histogram': {}})
             metrics['histogram'].update(self._get_model_params())
+
         for k, v in timers.items():
             t_mean = v.mean
             if t_mean is not None:
@@ -343,13 +364,14 @@ class PyTorchRunner(ABC):
     def val(self):
         return self._step(self.val_loader, 'val')
 
-    def inf(self, subset='val'):
-        if subset == 'val':
-            return self._step(self.val_loader, 'inf')
-        elif subset == 'tng':
-            return self._step(self.tng_loader, 'inf')
-        else:
-            raise NotImplementedError
+    def inf(self, dataset):
+        inf_loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=self.config.get('batch_size', 4),
+            shuffle=False,
+            num_workers=self.config.get('ds_workers', 2),
+            pin_memory=False)
+        return self._step(inf_loader, 'inf')
 
     def _get_model_params(self):
         params = {
