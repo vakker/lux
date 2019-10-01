@@ -1,8 +1,10 @@
+import re
 from os import path as osp
 
 import tensorflow as tf
 from ray.tune.logger import CSVLogger, JsonLogger, Logger
 from ray.tune.result import TIMESTEPS_TOTAL, TRAINING_ITERATION
+from ray.tune.util import flatten_dict
 from tensorboard.plugins.hparams import api as hp
 from tensorflow.python.eager import context
 from torch.utils.tensorboard import SummaryWriter
@@ -95,11 +97,8 @@ class PRLogger(Logger):
     def _log_hparams(self):
         if hasattr(self, 'trial'):
             if self.trial and self.trial.evaluated_params:
-                ep = {
-                    p.replace('runner_config', '').replace(
-                        'hparams', '').replace('//', '/').strip('/'): v
-                    for p, v in self.trial.evaluated_params.items()
-                }
+                ep = flatten_dict(self.trial.evaluated_params, '/')
+                ep = {format_keys(p): v for p, v in ep.items()}
                 hp.hparams(ep, trial_id=self.trial.trial_id)
 
     def flush(self):
@@ -109,3 +108,8 @@ class PRLogger(Logger):
     def close(self):
         if self._file_writer is not None:
             self._file_writer.close()
+
+
+def format_keys(key):
+    key = re.sub('runner_config|candidate|hparams', '', key)
+    return re.sub('^/|/$', '', re.sub(r'/{2,}', '/', key))
