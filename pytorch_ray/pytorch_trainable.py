@@ -121,7 +121,10 @@ class PyTorchTrainable(Trainable):
         return self._runner.epoch
 
     def fit(self):
-        for i in trange(self.config['max_epochs'], initial=self.epoch):
+        for i in trange(
+                self.config['max_epochs'],
+                initial=self.epoch,
+                disable=self.config.get('no_prog', False)):
             _ = self.train()
 
     @classmethod
@@ -129,7 +132,7 @@ class PyTorchTrainable(Trainable):
 
         gpu_used = get_calib(config, 'gpu')
         gpu_mem = 11175 * 1024 * 1024
-        num_gpus = min(1, max(0.12, 1.4 * gpu_used / gpu_mem))
+        num_gpus = min(1, max(0.15, 1.5 * gpu_used / gpu_mem))
 
         # mem_used = 1.1 * get_calib(config, 'mem')
         mem_used = 0
