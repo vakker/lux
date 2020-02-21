@@ -1,12 +1,8 @@
-from os import path as osp
-
 import pytest
-from ray import tune
 
 from pytorch_ray import PyTorchTrainable
-from pytorch_ray.logger import pr_logger_creator
 
-from .utils import create_runner, get_chkp_dir, trial_str_creator
+from .utils import get_chkp_dir
 
 
 def test_trainable0(trainable):

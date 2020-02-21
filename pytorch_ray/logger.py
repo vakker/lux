@@ -1,22 +1,32 @@
+import logging
 import re
 from os import path as osp
 
+import numpy as np
 import tensorflow as tf
-from ray.tune.logger import CSVLogger, JsonLogger, Logger
+from ray.tune.logger import DEFAULT_LOGGERS, CSVLogger, JsonLogger, Logger
 from ray.tune.result import TIMESTEPS_TOTAL, TRAINING_ITERATION
-from ray.tune.util import flatten_dict
+from ray.tune.utils import flatten_dict
 from tensorboard.plugins.hparams import api as hp
 from tensorflow.python.eager import context
 from torch.utils.tensorboard import SummaryWriter
 
 
-def pr_logger_creator(config, logdir=None, trial=None):
+def tb_logger_creator(config, logdir=None, trial=None):
     if logdir is None:
         logdir = config['logdir']
-    return PRLogger(config, logdir, trial)
+    return TBLogger(config, logdir, trial)
 
 
-LOGGERS = [JsonLogger, CSVLogger, pr_logger_creator]
+def mlf_logger_creator(config, logdir=None, trial=None):
+    if logdir is None:
+        logdir = config['logdir']
+
+    return MLFLogger(config, logdir, trial)
+
+
+# LOGGERS = [JsonLogger, CSVLogger] + tb_logger_creator
+# LOGGERS = DEFAULT_LOGGERS + ['MLFLowLogger']
 
 # class PRLogger(Logger):
 #     def _init(self):
@@ -64,7 +74,7 @@ LOGGERS = [JsonLogger, CSVLogger, pr_logger_creator]
 #         self._tb_writer.add_graph(model, inputs)
 
 
-class PRLogger(Logger):
+class TBLogger(Logger):
     def _init(self):
         self._file_writer = None
         self._hp_logged = False
@@ -108,6 +118,51 @@ class PRLogger(Logger):
     def close(self):
         if self._file_writer is not None:
             self._file_writer.close()
+
+
+class MLFLogger(Logger):
+    def _init(self):
+        from mlflow.tracking import MlflowClient
+        uri = osp.join(osp.dirname(self.logdir), 'mlruns')
+        # print(uri)
+        # import ipdb
+        # ipdb.set_trace()
+        # raise RuntimeError
+        client = MlflowClient(tracking_uri=uri)
+        experiments = [e.name for e in client.list_experiments()]
+        exp_name = self.config.get("mlflow_experiment", "test")
+        if exp_name in experiments:
+            experiment_id = client.get_experiment_by_name(exp_name)
+        else:
+            experiment_id = client.create_experiment(exp_name)
+        run = client.create_run(experiment_id.experiment_id,
+                                tags={'mlflow.runName': self.trial.trial_id})
+        self._run_id = run.info.run_id
+
+        self.client = client
+        self._log_hparams()
+
+    def on_result(self, result):
+        for key, value in result.items():
+            if not isinstance(value, (np.floating, float)):
+                continue
+            if not key.startswith('scalar/'):
+                continue
+            self.client.log_metric(self._run_id,
+                                   key.replace('scalar/', ''),
+                                   value,
+                                   step=result.get(TRAINING_ITERATION))
+
+    def close(self):
+        self.client.set_terminated(self._run_id)
+
+    def _log_hparams(self):
+        if hasattr(self, 'trial'):
+            if self.trial and self.trial.evaluated_params:
+                ep = flatten_dict(self.trial.evaluated_params, '/')
+                ep = {format_keys(p): v for p, v in ep.items()}
+                for key, value in ep.items():
+                    self.client.log_param(self._run_id, key, value)
 
 
 def format_keys(key):

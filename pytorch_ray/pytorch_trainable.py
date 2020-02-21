@@ -9,6 +9,8 @@ from glob import glob
 from os import path as osp
 
 import numpy as np
+from tqdm import tqdm, trange
+
 import ray
 import torch
 from ray.tune import Trainable
@@ -17,11 +19,10 @@ from ray.tune.result import (DEFAULT_RESULTS_DIR, DONE, EPISODES_THIS_ITER,
                              EPISODES_TOTAL, RESULT_DUPLICATE,
                              TIME_THIS_ITER_S, TIMESTEPS_THIS_ITER,
                              TIMESTEPS_TOTAL, TRAINING_ITERATION)
-from ray.tune.util import flatten_dict
-from tqdm import tqdm, trange
+from ray.tune.utils import flatten_dict
 
 from . import utils
-from .logger import PRLogger, pr_logger_creator
+from .logger import TBLogger, tb_logger_creator
 
 logger = logging.getLogger(__name__)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -30,7 +31,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 class PyTorchTrainable(Trainable):
     def __init__(self, config=None, logger_creator=None):
         if logger_creator is None:
-            logger_creator = pr_logger_creator
+            logger_creator = tb_logger_creator
         super().__init__(config, logger_creator)
 
     def _setup(self, config):
@@ -81,7 +82,7 @@ class PyTorchTrainable(Trainable):
                 for k in keys
             }
 
-            if isinstance(self._result_logger, PRLogger):
+            if isinstance(self._result_logger, TBLogger):
                 self._result_logger.log(stats, self.epoch)
 
         logging.debug('#' * 10)
@@ -121,10 +122,9 @@ class PyTorchTrainable(Trainable):
         return self._runner.epoch
 
     def fit(self):
-        for i in trange(
-                self.config['max_epochs'],
-                initial=self.epoch,
-                disable=self.config.get('no_prog', False)):
+        for i in trange(self.config['max_epochs'],
+                        initial=self.epoch,
+                        disable=self.config.get('no_prog', False)):
             _ = self.train()
 
     @classmethod
@@ -137,8 +137,9 @@ class PyTorchTrainable(Trainable):
         # mem_used = 1.1 * get_calib(config, 'mem')
         mem_used = 0
 
-        return Resources(
-            cpu=config.get("num_cpus", 2), gpu=num_gpus, memory=mem_used)
+        return Resources(cpu=config.get("num_cpus", 2),
+                         gpu=num_gpus,
+                         memory=mem_used)
 
 
 def get_calib(config, element):
@@ -156,7 +157,6 @@ def get_calib(config, element):
 
 class PyTorchRunner(ABC):
     """Manages a PyTorch model for training."""
-
     def __init__(self, config=None):
         """Initializes the runner.
 

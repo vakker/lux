@@ -1,12 +1,10 @@
-from os import path as osp
-
 import pytest
 from ray import tune
 
 from pytorch_ray import PyTorchTrainable
-from pytorch_ray.logger import pr_logger_creator
+from pytorch_ray.logger import mlf_logger_creator, tb_logger_creator
 
-from .utils import create_runner, get_chkp_dir, trial_str_creator
+from .utils import trial_str_creator
 
 
 @pytest.mark.parametrize("num_gpus", [0, 1])
@@ -21,17 +19,16 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
     trainable_config['runner_config']['hparams'][
         'momentum'] = tune.grid_search([0, 0.9])
 
-    analysis = tune.run(
-        PyTorchTrainable,
-        loggers=[pr_logger_creator],
-        num_samples=1,
-        config=trainable_config,
-        trial_name_creator=trial_str_creator,
-        stop={"training_iteration": 5},
-        checkpoint_score_attr='min-scalar/val/loss',
-        keep_checkpoints_num=2,
-        local_dir='./logs',
-        verbose=1)
+    analysis = tune.run(PyTorchTrainable,
+                        loggers=[tb_logger_creator, mlf_logger_creator],
+                        num_samples=1,
+                        config=trainable_config,
+                        trial_name_creator=trial_str_creator,
+                        stop={"training_iteration": 5},
+                        checkpoint_score_attr='min-scalar/val/loss',
+                        keep_checkpoints_num=2,
+                        local_dir='./logs',
+                        verbose=1)
 
     # checks loss decreasing for every trials
     for path, df in analysis.trial_dataframes.items():
