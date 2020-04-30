@@ -1,15 +1,12 @@
 import logging
 import os
-import sys
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from datetime import datetime
 from glob import glob
 from os import path as osp
 
 import numpy as np
-import ray
 import torch
 from ray.tune import Trainable
 from ray.tune.resources import Resources
@@ -18,7 +15,6 @@ from ray.tune.result import (DEFAULT_RESULTS_DIR, DONE, EPISODES_THIS_ITER,
                              TIME_THIS_ITER_S, TIMESTEPS_THIS_ITER,
                              TIMESTEPS_TOTAL, TRAINING_ITERATION)
 from ray.tune.utils import flatten_dict
-from tqdm import tqdm, trange
 
 from . import utils
 from .logger import TBLogger, tb_logger_creator
@@ -27,7 +23,7 @@ logger = logging.getLogger(__name__)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-class PyTorchTrainable(Trainable):
+class LuxTrainable(Trainable):
     def __init__(self, config=None, logger_creator=None):
         if logger_creator is None:
             logger_creator = tb_logger_creator
@@ -136,20 +132,8 @@ class PyTorchTrainable(Trainable):
                          memory=mem_used)
 
 
-class PyTorchRunner(ABC):
-    """Manages a PyTorch model for training."""
+class LuxRunner(ABC):
     def __init__(self, config=None, inf_only=False):
-        """Initializes the runner.
-
-        Args:
-            model_creator (dict -> torch.nn.Module): see pytorch_trainer.py.
-            data_creator (dict -> Dataset, Dataset): see pytorch_trainer.py.
-            optimizer_creator (torch.nn.Module, dict -> loss, optimizer):
-                see pytorch_trainer.py.
-            config (dict): see pytorch_trainer.py.
-            batch_size (int): see pytorch_trainer.py.
-        """
-
         self.model = None
         self.criterion = None
         self.optimizer = None

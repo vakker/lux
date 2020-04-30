@@ -1,6 +1,6 @@
 import pytest
 
-from pytorch_ray import PyTorchTrainable
+from lux import LuxTrainable
 
 from .utils import get_chkp_dir
 
@@ -47,7 +47,7 @@ def test_trainable_save_restore0(trainable):
 def test_trainable_save_restore1(trainable_config):
     logdir = trainable_config['logdir']
 
-    trainable0 = PyTorchTrainable(trainable_config)
+    trainable0 = LuxTrainable(trainable_config)
 
     stats0 = trainable0.train()
     stats0 = trainable0.train()
@@ -60,7 +60,7 @@ def test_trainable_save_restore1(trainable_config):
     assert get_chkp_dir(chkp_path) == 'checkpoint_3'
 
     trainable_config['restore_from'] = chkp_path
-    trainable1 = PyTorchTrainable(trainable_config)
+    trainable1 = LuxTrainable(trainable_config)
     stats1 = trainable1.val()
     assert trainable1.epoch == 3
     assert trainable1._runner.epoch == 3

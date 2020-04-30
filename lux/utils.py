@@ -10,6 +10,7 @@ from os import path as osp
 import numpy as np
 import pandas as pd
 import torch
+import yaml
 
 
 def get_dict_hash(d):
@@ -134,9 +135,7 @@ def get_configs(log_dir):
 
 
 def print_metrics(scores):
-    scores_print = [
-        '%s: %.4f,' % (metric, value) for metric, value in scores.items()
-    ]
+    scores_print = ['%s: %.4f,' % (metric, value) for metric, value in scores.items()]
     logging.debug(' '.join(['Val loss:'] + scores_print))
     # tqdm.write(' '.join(['Val loss:'] + scores_print))
 

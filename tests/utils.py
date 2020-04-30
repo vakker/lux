@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from pytorch_ray import PyTorchRunner
+from lux import LuxRunner
 
 
 def get_chkp_dir(chkp_path):
@@ -33,7 +33,6 @@ class TwoLayerNet(nn.Module):
 
 class LinearDataset(torch.utils.data.Dataset):
     """y = x * a + b"""
-
     def __init__(self, a, b, size=1000):
         np.random.seed(size)
         a = np.array(a)
@@ -53,7 +52,7 @@ class LinearDataset(torch.utils.data.Dataset):
         return len(self.x)
 
 
-class SimpleRunner(PyTorchRunner):
+class SimpleRunner(LuxRunner):
     def model_creator(self, config):
         hparams = config['hparams']
         return TwoLayerNet(hparams['D_in'], hparams['H'], hparams['D_out'])
@@ -99,8 +98,5 @@ class SimpleRunner(PyTorchRunner):
             'val/loss': np.mean([ba['loss'] for ba in batch_outputs]),
         }
 
-        histogram = {
-            'val/errors':
-            np.concatenate([ba['errors'] for ba in batch_outputs], axis=0)
-        }
+        histogram = {'val/errors': np.concatenate([ba['errors'] for ba in batch_outputs], axis=0)}
         return {'scalar': scalar, 'histogram': histogram}

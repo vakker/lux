@@ -1,8 +1,8 @@
 import pytest
 from ray import tune
 
-from pytorch_ray import PyTorchTrainable
-from pytorch_ray.logger import mlf_logger_creator, tb_logger_creator
+from lux import LuxTrainable
+from lux.logger import mlf_logger_creator, tb_logger_creator
 
 from .utils import trial_str_creator
 
@@ -19,7 +19,7 @@ def test_tune_train(start_ray, trainable_config, num_gpus):
     trainable_config['runner_config']['hparams'][
         'momentum'] = tune.grid_search([0, 0.9])
 
-    analysis = tune.run(PyTorchTrainable,
+    analysis = tune.run(LuxTrainable,
                         loggers=[tb_logger_creator, mlf_logger_creator],
                         num_samples=1,
                         config=trainable_config,

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import ray
 
-from pytorch_ray import PyTorchTrainable
+from lux import LuxTrainable
 
 from .utils import create_runner
 
@@ -49,13 +49,12 @@ def trainable_config():
     return get_trainable_config()
 
 
-@pytest.fixture(
-    scope="function", params=[
-        'cpu',
-        'gpu',
-    ])
+@pytest.fixture(scope="function", params=[
+    'cpu',
+    'gpu',
+])
 def trainable(request):
     config = get_trainable_config()
     config['num_gpus'] = 1 if request.param == 'gpu' else 0
-    st = PyTorchTrainable(config)
+    st = LuxTrainable(config)
     return st
