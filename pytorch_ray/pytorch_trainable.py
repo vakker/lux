@@ -9,8 +9,6 @@ from glob import glob
 from os import path as osp
 
 import numpy as np
-from tqdm import tqdm, trange
-
 import ray
 import torch
 from ray.tune import Trainable
@@ -20,6 +18,7 @@ from ray.tune.result import (DEFAULT_RESULTS_DIR, DONE, EPISODES_THIS_ITER,
                              TIME_THIS_ITER_S, TIMESTEPS_THIS_ITER,
                              TIMESTEPS_TOTAL, TRAINING_ITERATION)
 from ray.tune.utils import flatten_dict
+from tqdm import tqdm, trange
 
 from . import utils
 from .logger import TBLogger, tb_logger_creator
@@ -129,12 +128,7 @@ class PyTorchTrainable(Trainable):
 
     @classmethod
     def default_resource_request(cls, config):
-
-        gpu_used = get_calib(config, 'gpu')
-        gpu_mem = 11175 * 1024 * 1024
-        num_gpus = min(1, max(0.15, 1.5 * gpu_used / gpu_mem))
-
-        # mem_used = 1.1 * get_calib(config, 'mem')
+        num_gpus = config.get('num_gpus', 0)
         mem_used = 0
 
         return Resources(cpu=config.get("num_cpus", 2),
@@ -142,22 +136,9 @@ class PyTorchTrainable(Trainable):
                          memory=mem_used)
 
 
-def get_calib(config, element):
-    calib = config.get('calib')
-
-    if calib is not None:
-        hparam_id = ','.join([
-            f'{k}={v}' for k, v in config['runner_config']['hparams'].items()
-        ])
-        used = calib[element].get(hparam_id, 0)
-        return used
-    else:
-        return 0
-
-
 class PyTorchRunner(ABC):
     """Manages a PyTorch model for training."""
-    def __init__(self, config=None):
+    def __init__(self, config=None, inf_only=False):
         """Initializes the runner.
 
         Args:
@@ -179,6 +160,7 @@ class PyTorchRunner(ABC):
         self.config = {} if config is None else config
         self.batch_size = self.config.get('batch_size', 16)
         self.num_gpus = self.config.get('num_gpus', 0)
+        self.inf_only = inf_only
         self.verbose = True
 
         self._epoch = 0
@@ -214,13 +196,16 @@ class PyTorchRunner(ABC):
         logger.debug("Creating model")
         self.model = self.model_creator(config)
         if self.num_gpus:
-            self.model = self.model.cuda()
+            self.model = self.model.to('cuda:0')
+
+        if self.inf_only:
+            return
 
         logger.debug("Creating optimizer")
         self.criterion, self.optimizer = self.optimizer_creator(
             self.model, config)
         if self.num_gpus:
-            self.criterion = self.criterion.cuda()
+            self.criterion = self.criterion.to('cuda:0')
 
         logger.debug("Creating dataset")
         self.tng_set, self.val_set = self.data_creator(config)
@@ -293,7 +278,10 @@ class PyTorchRunner(ABC):
             # Create non_blocking tensors for distributed training
             with timers["d2h"]:
                 if self.num_gpus:
-                    samples = [s.cuda(non_blocking=True) for s in samples]
+                    samples = [
+                        s.to(device='cuda:0', non_blocking=True)
+                        for s in samples
+                    ]
 
             # compute output
             with timers["fwd"]:

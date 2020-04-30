@@ -25,7 +25,7 @@ def mlf_logger_creator(config, logdir=None, trial=None):
     return MLFLogger(config, logdir, trial)
 
 
-# LOGGERS = [JsonLogger, CSVLogger] + tb_logger_creator
+LOGGERS = [JsonLogger, CSVLogger] + [tb_logger_creator, mlf_logger_creator]
 # LOGGERS = DEFAULT_LOGGERS + ['MLFLowLogger']
 
 # class PRLogger(Logger):
